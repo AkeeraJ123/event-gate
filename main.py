@@ -1,11 +1,11 @@
 import os
 import time
 import threading
-from flask import Flask, jsonify, render_template_string
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
-# --- GLOBAL STATE ---
+# ---- GLOBAL STATE ----
 stats = {
 "eth": 0,
 "base": 0,
@@ -13,76 +13,58 @@ stats = {
 "started_at": int(time.time())
 }
 
-# --- EVENT LOOP (AUTOMATIC) ---
+# ---- EVENT LOOP (AUTOMATIC) ----
 def event_loop():
 while True:
 stats["eth"] += 1
-stats["base"] += 1
-stats["polygon"] += 1
-time.sleep(5) # event tick every 5 seconds
+stats["base"] += 2
+stats["polygon"] += 3
+time.sleep(2)
 
-# --- START BACKGROUND WORKER ---
+# Start background event engine
 threading.Thread(target=event_loop, daemon=True).start()
 
-# --- DASHBOARD UI ---
-DASHBOARD_HTML = """
-<!DOCTYPE html>
+# ---- API ----
+@app.route("/")
+def dashboard():
+return f"""
 <html>
 <head>
 <title>Event Gate — Live</title>
+<meta http-equiv="refresh" content="5">
 <style>
-body {
-background: #0b0f14;
-color: #e5e7eb;
+body {{
 font-family: monospace;
+background: #0e0e11;
+color: #00ffcc;
 padding: 40px;
-}
-.card {
-background: #111827;
-border-radius: 12px;
+}}
+h1 {{ color: #ffffff; }}
+.box {{
+background: #15151c;
 padding: 20px;
-margin-bottom: 20px;
-box-shadow: 0 0 20px rgba(0,255,255,0.1);
-}
-h1 { color: #38bdf8; }
-.stat { font-size: 24px; }
+border-radius: 12px;
+width: 300px;
+}}
 </style>
 </head>
 <body>
-<h1>⚡ Event Gate — Live Dashboard</h1>
-
-<div class="card">
-<div class="stat">ETH Events: {{ eth }}</div>
-<div class="stat">BASE Events: {{ base }}</div>
-<div class="stat">POLYGON Events: {{ polygon }}</div>
+<h1>⚡ Event Gate — Live</h1>
+<div class="box">
+<p>ETH events: {stats["eth"]}</p>
+<p>Base events: {stats["base"]}</p>
+<p>Polygon events: {stats["polygon"]}</p>
+<p>Uptime: {int(time.time()) - stats["started_at"]}s</p>
 </div>
-
-<div class="card">
-Started at: {{ started_at }}
-</div>
-
-<script>
-setTimeout(() => location.reload(), 5000);
-</script>
 </body>
 </html>
 """
 
-@app.route("/")
-def dashboard():
-return render_template_string(
-DASHBOARD_HTML,
-eth=stats["eth"],
-base=stats["base"],
-polygon=stats["polygon"],
-started_at=stats["started_at"]
-)
+@app.route("/stats")
+def get_stats():
+return jsonify(stats)
 
-@app.route("/health")
-def health():
-return jsonify({"status": "ok", "stats": stats})
-
-# --- RAILWAY ENTRYPOINT ---
+# ---- ENTRYPOINT ----
 if __name__ == "__main__":
 port = int(os.environ.get("PORT", 8080))
 app.run(host="0.0.0.0", port=port)
