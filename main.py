@@ -1,83 +1,88 @@
+import os
 import time
 import threading
 from flask import Flask, jsonify, render_template_string
-import os
 
 app = Flask(__name__)
 
-STATE = {
+# --- GLOBAL STATE ---
+stats = {
 "eth": 0,
 "base": 0,
 "polygon": 0,
-"events_total": 0,
-"started_at": time.time()
+"started_at": int(time.time())
 }
 
-PRICE_INTERNAL = 0.001
-PRICE_EXTERNAL = 0.01
-
-
-def tick():
-STATE["eth"] += 1
-STATE["base"] += 1
-STATE["polygon"] += 1
-STATE["events_total"] += 3
-print("EVENT_TICK", STATE)
-
-
-def engine_loop():
+# --- EVENT LOOP (AUTOMATIC) ---
+def event_loop():
 while True:
-time.sleep(5)
-tick()
+stats["eth"] += 1
+stats["base"] += 1
+stats["polygon"] += 1
+time.sleep(5) # event tick every 5 seconds
 
+# --- START BACKGROUND WORKER ---
+threading.Thread(target=event_loop, daemon=True).start()
 
-@app.route("/")
-def dashboard():
-uptime = int(time.time() - STATE["started_at"])
-cost = round(STATE["events_total"] * PRICE_INTERNAL, 4)
-revenue = round(STATE["events_total"] * PRICE_EXTERNAL, 2)
-
-return render_template_string("""
+# --- DASHBOARD UI ---
+DASHBOARD_HTML = """
+<!DOCTYPE html>
 <html>
 <head>
 <title>Event Gate — Live</title>
 <style>
-body { background:#0b0b0b; color:#00ff88; font-family:monospace; padding:40px; }
-.card { border:1px solid #00ff88; padding:15px; margin-bottom:10px; }
+body {
+background: #0b0f14;
+color: #e5e7eb;
+font-family: monospace;
+padding: 40px;
+}
+.card {
+background: #111827;
+border-radius: 12px;
+padding: 20px;
+margin-bottom: 20px;
+box-shadow: 0 0 20px rgba(0,255,255,0.1);
+}
+h1 { color: #38bdf8; }
+.stat { font-size: 24px; }
 </style>
 </head>
 <body>
-<h1>⚡ EVENT GATE — LIVE</h1>
-<div class="card">ETH: {{eth}}</div>
-<div class="card">BASE: {{base}}</div>
-<div class="card">POLYGON: {{polygon}}</div>
-<div class="card">TOTAL EVENTS: {{total}}</div>
-<div class="card">UPTIME: {{uptime}}s</div>
-<div class="card">INTERNAL COST: ${{cost}}</div>
-<div class="card">REVENUE POTENTIAL: ${{revenue}}</div>
+<h1>⚡ Event Gate — Live Dashboard</h1>
+
+<div class="card">
+<div class="stat">ETH Events: {{ eth }}</div>
+<div class="stat">BASE Events: {{ base }}</div>
+<div class="stat">POLYGON Events: {{ polygon }}</div>
+</div>
+
+<div class="card">
+Started at: {{ started_at }}
+</div>
+
+<script>
+setTimeout(() => location.reload(), 5000);
+</script>
 </body>
 </html>
-""",
-eth=STATE["eth"],
-base=STATE["base"],
-polygon=STATE["polygon"],
-total=STATE["events_total"],
-uptime=uptime,
-cost=cost,
-revenue=revenue
+"""
+
+@app.route("/")
+def dashboard():
+return render_template_string(
+DASHBOARD_HTML,
+eth=stats["eth"],
+base=stats["base"],
+polygon=stats["polygon"],
+started_at=stats["started_at"]
 )
 
+@app.route("/health")
+def health():
+return jsonify({"status": "ok", "stats": stats})
 
-@app.route("/metrics")
-def metrics():
-return jsonify(STATE)
-
-
+# --- RAILWAY ENTRYPOINT ---
 if __name__ == "__main__":
-t = threading.Thread(target=engine_loop)
-t.daemon = True
-t.start()
-
-port = int(os.environ.get("PORT", 8000))
+port = int(os.environ.get("PORT", 8080))
 app.run(host="0.0.0.0", port=port)
-
