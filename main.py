@@ -1,49 +1,143 @@
 import time
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import json
+from flask import Flask, jsonify, render_template_string
+import os
 
+app = Flask(__name__)
+
+# -----------------------------
+# GLOBAL STATE (INFRA MEMORY)
+# -----------------------------
 STATE = {
-    "eth": 0,
-    "base": 0,
-    "polygon": 0,
-    "started_at": time.time()
+"eth": 0,
+"base": 0,
+"polygon": 0,
+"started_at": time.time(),
+"events_total": 0
 }
 
-EVENT_PRICE = 0.001  # what YOU charge per event ($)
+PRICE_PER_EVENT = 0.001 # internal cost reference
+EXTERNAL_PRICE = 0.01 # what YOU charge later
 
-def event_loop():
-    while True:
-        STATE["eth"] += 1
-        STATE["base"] += 1
-        STATE["polygon"] += 1
-        print("EVENT TICK:", STATE)
-        time.sleep(5)  # every 5 seconds (adjust later)
+# -----------------------------
+# BACKGROUND EVENT ENGINE
+# -----------------------------
+def event_engine():
+while True:
+time.sleep(5) # event tick every 5 seconds
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == "/":
-            total = STATE["eth"] + STATE["base"] + STATE["polygon"]
-            revenue = total * EVENT_PRICE
+STATE["eth"] += 1
+STATE["base"] += 1
+STATE["polygon"] += 1
 
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
+STATE["events_total"] += 3
 
-            self.wfile.write(json.dumps({
-                "chains": STATE,
-                "total_events": total,
-                "revenue_usd": round(revenue, 2),
-                "uptime_minutes": int((time.time() - STATE["started_at"]) / 60),
-                "status": "live"
-            }, indent=2).encode())
+print({
+"EVENT_TICK": {
+"eth": STATE["eth"],
+"base": STATE["base"],
+"polygon": STATE["polygon"],
+"started_at": STATE["started_at"]
+}
+})
 
-def run_server():
-    port = 8080
-    server = HTTPServer(("", port), Handler)
-    print(f"Server running on port {port}")
-    server.serve_forever()
+# -----------------------------
+# DASHBOARD UI (PUBLIC)
+# -----------------------------
+DASHBOARD_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Event Gate — Live</title>
+<style>
+body {
+background:#0b0b0b;
+color:#00ff88;
+font-family: monospace;
+padding:30px;
+}
+.card {
+border:1px solid #00ff88;
+padding:20px;
+margin-bottom:15px;
+border-radius:8px;
+}
+h1 { color:#00ffaa; }
+</style>
+</head>
+<body>
+<h1>⚡ EVENT GATE — LIVE</h1>
 
+<div class="card">
+<b>ETH Events:</b> {{eth}}
+</div>
+
+<div class="card">
+<b>BASE Events:</b> {{base}}
+</div>
+
+<div class="card">
+<b>POLYGON Events:</b> {{polygon}}
+</div>
+
+<div class="card">
+<b>Total Events:</b> {{total}}
+</div>
+
+<div class="card">
+<b>Uptime:</b> {{uptime}} seconds
+</div>
+
+<div class="card">
+<b>Internal Cost:</b> ${{cost}}
+</div>
+
+<div class="card">
+<b>External Revenue Potential:</b> ${{revenue}}
+</div>
+</body>
+</html>
+"""
+
+@app.route("/")
+def dashboard():
+uptime = int(time.time() - STATE["started_at"])
+cost = round(STATE["events_total"] * PRICE_PER_EVENT, 4)
+revenue = round(STATE["events_total"] * EXTERNAL_PRICE, 2)
+
+return render_template_string(
+DASHBOARD_HTML,
+eth=STATE["eth"],
+base=STATE["base"],
+polygon=STATE["polygon"],
+total=STATE["events_total"],
+uptime=uptime,
+cost=cost,
+revenue=revenue
+)
+
+# -----------------------------
+# METRICS (JSON)
+# -----------------------------
+@app.route("/metrics")
+def metrics():
+return jsonify({
+"chains": {
+"eth": STATE["eth"],
+"base": STATE["base"],
+"polygon": STATE["polygon"]
+},
+"events_total": STATE["events_total"],
+"uptime_seconds": int(time.time() - STATE["started_at"])
+})
+
+# -----------------------------
+# BOOT
+# -----------------------------
 if __name__ == "__main__":
-    threading.Thread(target=event_loop, daemon=True).start()
-    run_server()
+t = threading.Thread(target=event_engine, daemon=True)
+t.start()
+
+port = int(os.environ.get("PORT", 8000))
+app.run(host="0.0.0.0", port=port)
+
